@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="shortcut icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAAA3NCSVQICAjb4U/gAAAACXBIWXMAAABvAAAAbwHxotxDAAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48GgAAAE5QTFRF////1VVV20lt30Bg2E5i20lb2U1Z30pg20lb301g3ktg3ktf3ktg3Ulf3klf3Ute3Upg3kpf3Ute3Upf3Utf3Elf3Upf3klf3Upf3UpfZuJdUQAAABl0Uk5TAAYHCA0OFBgcKD1OVVtzd5CRnaPU5evs+ptmvhUAAABQSURBVBhXdc9HEoAwDANAhRpKCoQS/f+jXBEefNwZ2xIApHPDe/pKTiIH71agWwdfihfLZBaIZBRwIbhln8XGyqv5B7NijupbE+wb3ZaT+g98cQSnpRYYMQAAAABJRU5ErkJggg" />
+
+  <title>Grid Draw</title>
+  <style>
+    body {
+      background:0%;
+      padding: 0;
+      margin: 0;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.8.0/p5.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.8.0/addons/p5.dom.min.js"></script>
+  <script>
+      let grid;
+      
+      var dat = new ArrayBuffer();
+
+      var domain_name = '';
+
+      var connection = new WebSocket('ws://' + domain_name + ':81/', ['arduino']);
+      
+      window.addEventListener('beforeunload', function(event) {
+        connection.send('S');
+      });
+      connection.binaryType = 'arraybuffer';
+      var buffer;
+      connection.onopen = function () {
+        connection.send('Connect ' + new Date());
+      };
+      connection.onerror = function (error) {
+        console.log('WebSocket Error ', error);
+      };
+
+
+      connection.onmessage = function (evt) {
+        console.log(evt.data);
+        dat = new Uint8Array(evt.data);
+
+        grid.updateGrid(dat);
+
+        grid.visible = true;
+      };
+
+
+
+      connection.onclose = function () {
+        console.log('WebSocket connection closed');
+      };
+
+      function setup() {
+        createCanvas(getViewport()[0], getViewport()[1] - 5);
+        background(50);
+        frameRate(30);
+
+        grid = new Grid(min(width, height) * 0.8);
+
+        console.log(width, height);
+      }
+
+      let lastpos = [-1, -1];
+      let last_pressed = false;
+
+      var last_data = [-1];
+
+      function comp(a, b){
+        if(a.length != b.length)
+          return false;
+        
+          for(let i = 0; i < a.length; i++)
+            if(a[i] != b[i])
+              return false;
+
+        return true;
+      }
+
+      function draw() {
+        clear();
+        //background(240);
+        background(100);
+        
+        if(mouseIsPressed){
+          let pos = grid.getCell(mouseX, mouseY);
+          console.log(pos);
+          if(pos[0] >= 0 && pos[0] <= 7 && pos[1] >= 0 && pos[1] <= 7)
+          if(pos[0] != lastpos[0] || pos[1] != lastpos[1] || !last_pressed){
+            grid.updateCell(mouseX, mouseY);
+            connection.send(grid.getBinArray());
+            lastpos = pos;
+          }
+        }
+
+        grid.show();
+
+        last_pressed = mouseIsPressed;
+      }
+
+      class Grid {
+          constructor(scale) {
+              this.xoffset = (width / 2) - (scale / 2);
+              this.yoffset = (height - scale) / 2;
+              console.log(this.xoffset, this.yoffset);
+              this.scale = scale;
+              this.resolution = 8;
+              this.grid_data = [];
+              let last = false;
+              this.visible = false;
+              for (let i = 0; i < this.resolution; i ++){
+                this.grid_data.push([]);
+                for (let j = 0; j < this.resolution; j ++){
+                  this.grid_data[i].push(last);
+                  last = !last;
+                }
+                last = !last;
+              }
+          }
+
+          refresh(){
+            for (let i = 0; i < this.resolution; i ++){
+              for (let j = 0; j < this.resolution; j ++){
+                this.grid_data[i][j] = false;
+              }
+            }
+          }
+
+          getCell(X, Y){
+            X -= this.xoffset;
+            Y -= this.yoffset;
+
+            let x_pos = (X / this.scale) * this.resolution;
+            let y_pos = (Y / this.scale) * this.resolution;
+            x_pos = Math.ceil(x_pos);
+            y_pos = Math.ceil(y_pos);
+            x_pos--;
+            y_pos--;
+
+            //console.log(x_pos, y_pos);
+            return [y_pos, x_pos];
+          }
+
+          updateCell(X, Y){
+            let pos = this.getCell(X, Y);
+
+            this.grid_data[pos[0]][pos[1]] = !this.grid_data[pos[0]][pos[1]];
+          }
+
+          show() {
+              if(!this.visible)
+                return;
+              //push();
+
+              translate(this.xoffset, this.yoffset);
+              //translate(10, 100);
+              ellipseMode(CORNER);
+              noStroke();
+              for (let i = 0; i < this.resolution; i ++){
+                for (let j = 0; j < this.resolution; j ++){
+                  if(this.grid_data[i][j])
+                    fill(255, 50, 50);
+                  else
+                    fill(240, 240, 240);
+                  //square(mW(j/this.resolution),mH(i/this.resolution)-this.scale/this.resolution,mW(this.resolution));
+                  //square(mV(j/this.resolution, this.scale),mV(i/this.resolution, this.scale), (this.scale / this.resolution));
+                  ellipse(mV(j/this.resolution, this.scale),mV(i/this.resolution, this.scale), (this.scale / this.resolution))
+                }
+              }
+
+              //pop();
+          }
+
+          getBinArray(){
+            let arr = [];
+            for (let i = 0; i < this.resolution; i ++){
+              arr[i] = 0;
+              for (let j = 0; j < this.resolution; j ++){
+                arr[i] |= this.grid_data[i][j] << this.resolution - j - 1;
+              }
+            }
+            return Uint8Array.from(arr);
+          }
+
+          updateGrid(data){
+            for (let i = 0; i < this.resolution; i ++){
+              for (let j = 0; j < this.resolution; j ++){
+                console.log((data[i] >>> this.resolution - j - 1) && 1);
+                this.grid_data[i][j] = ((data[i] >>> this.resolution - j - 1) & 1)
+
+                //arr[i] |= this.grid_data[i][j] << this.resolution - j - 1;
+              }
+            }
+          }
+      }
+
+      function mV(val, val2) {
+        return map(val, 0, 1, 0, val2);
+      }
+
+      function getViewport() {
+
+        var viewPortWidth;
+        var viewPortHeight;
+
+        // the more standards compliant browsers (mozilla/netscape/opera/IE7) use window.innerWidth and window.innerHeight
+        if (typeof window.innerWidth != 'undefined') {
+          viewPortWidth = window.innerWidth,
+            viewPortHeight = window.innerHeight
+        }
+
+        // IE6 in standards compliant mode (i.e. with a valid doctype as the first line in the document)
+        else if (typeof document.documentElement != 'undefined' &&
+          typeof document.documentElement.clientWidth !=
+          'undefined' && document.documentElement.clientWidth != 0) {
+          viewPortWidth = document.documentElement.clientWidth,
+            viewPortHeight = document.documentElement.clientHeight
+        }
+
+        // older versions of IE
+        else {
+          viewPortWidth = document.getElementsByTagName('body')[0].clientWidth,
+            viewPortHeight = document.getElementsByTagName('body')[0].clientHeight
+        }
+        return [viewPortWidth, viewPortHeight];
+      }
+  </script>
+</head>
+
+<body>
+</body>
+
+</html>
